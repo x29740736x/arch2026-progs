@@ -13,11 +13,11 @@
     .type   bf16_from_f32_asm, @function
     .align  2
 bf16_from_f32_asm:   
-	li t0, 0xFF    #t0存0xFF
 	srli t1, a0, 23  #t1存a0 右移 23 (exponent part)
-	and t2, t1, t0 #t2存t0跟t1 and運算
-    li t3, 0xFF
-	beq t2 , t3, InfNan #如果exponent全部都是1則branch
+	andi t1, t1, 0xFF #t2存t0跟t1 and運算
+    li t0, 0xFF
+	beq t1 , t0, InfNan #如果exponent全部都是1則branch
+
     srli t4, a0, 16
     andi t5, t4, 1
     add a0, a0, t5
@@ -174,24 +174,122 @@ mul_sub:
     or a0, t0, t1
     ret
     
-
-
-
-
-    
-    
-
-
-    
-
-
-    
     .size   bf16_mul_asm, .-bf16_mul_asm
 
     .globl  bf16_sqrt_asm
     .type   bf16_sqrt_asm, @function
     .align  2
 bf16_sqrt_asm:
-    li      a0, 0
+    srli t2, a0, 7            # t2 同時含符號和指數
+    andi t1, a0, 0x7F         # t1 = 小數欄
+    addi t0, t2, -1
+    li   t5, 254
+    bgeu t0, t5, .Lsqrt_special
+
+sqrt_normal:
+    ori  t1, t1, 0x80
+    addi t2, t2, -127
+
+    andi t0, t2, 1
+    beq  t0, zero, sqrt_even_exp
+    slli t1, t1, 1
+
+sqrt_even_exp:
+    srai t2, t2, 1
+    addi t2, t2, 127
+   
+
+    addi t1, t1, 1
+    slli t1, t1, 7
+    addi t1, t1, -1          
+
+    li   t3, 0x4000        
+    sub t1, t1, t3
+    li t4, 0x1000          
+
+sqrt_int_loop:
+       # t4 = 0x1000
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_400
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_400:
+    li   t4, 0x400
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_100
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_100:
+    li   t4, 0x100
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_40
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_40:
+    li   t4, 0x40
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_10
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_10:
+    li   t4, 0x10
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_4
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_4:
+    li   t4, 4
+    add  t5, t3, t4
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_1
+    sub  t1, t1, t5
+    add  t3, t3, t4
+
+.Lsqrt_1:
+    addi t5, t3, 1
+    srli t3, t3, 1
+    bltu t1, t5, .Lsqrt_done
+    addi t3, t3, 1
+
+.Lsqrt_done:
+    # 接原本的 andi t3, t3, 0x7F
+
+    andi t3, t3, 0x7F        
+    slli t2, t2, 7           
+    or   a0, t2, t3
     ret
-    .size   bf16_sqrt_asm, .-bf16_sqrt_asm
+.Lsqrt_special:
+    andi t2, t2, 0xFF
+    li   t0, 0xFF
+    bne  t2, t0, .Lsqrt_check_zero
+    bne  t1, zero, .Lsqrt_return_a  # NaN 原樣回傳
+
+.Lsqrt_check_zero:
+    slli t0, a0, 17                # 丟掉符號，只留下其餘 15 位
+    beq  t0, zero, .Lsqrt_return_0 # +0 或 -0
+    srli t0, a0, 15
+    bne  t0, zero, .Lsqrt_return_qnan
+    beq  t2, zero, .Lsqrt_return_0 # 正的次正規數
+
+.Lsqrt_return_a:
+    ret                            # NaN 或 +Inf
+
+.Lsqrt_return_qnan:
+    li   a0, 0x7FC0
+    ret
+
+.Lsqrt_return_0:
+    li   a0, 0
+    ret
+
+    .size bf16_sqrt_asm, .-bf16_sqrt_asm
