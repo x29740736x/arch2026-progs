@@ -4,8 +4,8 @@ uint16_t bf16_from_f32(uint32_t f32bits)
 {
     uint32_t exponent = (f32bits >> 23) & 0xFFu;  // 找exponent part
     if (exponent == 0xFFu)                        // case if exponent == 0xFFu
-        return (uint16_t) (f32bits >> 16);        // INF跟跟Nan直接return
-    uint32_t bits16 = (f32bits >> 16) & 1u;       // 如果剛好一半就往下取
+        return (uint16_t) (f32bits >> 16);        // INF跟Nan直接return
+    uint32_t bits16 = (f32bits >> 16) & 1u;       // 如果剛好一半讓最低位=0
     uint32_t rounded = f32bits + 0x7FFFu + bits16;
     return (uint16_t) (rounded >> 16);
 }
@@ -21,7 +21,7 @@ uint16_t bf16_mul(uint16_t a, uint16_t b)
         return a;               // 已經是Nan，不用check sign 也不用改
     if (exponent_a == 0xFFu) {  // 處理+-Inf
         if ((b & 0x7FFFu) == 0u)
-            return 0x7FC0u;  // 規定的Inf *+-0=0
+            return 0x7FC0u;  // 規定的Inf *+-0=0 -> return quiet Nan
         return (uint16_t) (sign | 0x7F80u);
     }
     uint32_t exponent_b =
@@ -36,7 +36,7 @@ uint16_t bf16_mul(uint16_t a, uint16_t b)
         return (uint16_t) (sign | 0x7F80u);
     }
     if ((a & 0x7FFFu) == 0u || (b & 0x7FFFu) == 0u)
-        return sign;  // finite value * 0
+        return sign;  // finite value * 0 有號0
 
     uint32_t significand_a = fraction_a;
     int32_t exp_a = (int32_t) exponent_a;  // 有offset的a
